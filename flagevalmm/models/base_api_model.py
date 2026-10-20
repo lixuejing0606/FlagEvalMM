@@ -21,6 +21,8 @@ class BaseApiModel:
         chat_name: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
         max_image_size: Optional[int] = None,
         min_short_side: Optional[int] = None,
         max_long_side: Optional[int] = None,
@@ -32,6 +34,7 @@ class BaseApiModel:
         reasoning: Optional[Dict[str, Any]] = None,
         provider: Optional[Dict[str, Any]] = None,
         retry_time: Optional[int] = None,
+        max_retries: int = 5,
         **kwargs,
     ) -> None:
         self.model_name = model_name
@@ -54,6 +57,10 @@ class BaseApiModel:
         self.chat_args: Dict[str, Any] = {}
         if temperature is not None:
             self.chat_args["temperature"] = temperature
+        if top_p is not None:
+            self.chat_args["top_p"] = top_p
+        if top_k is not None:
+            self.chat_args["top_k"] = top_k
         if reasoning is not None:
             self.chat_args["reasoning"] = reasoning
         if max_tokens is not None:
@@ -62,8 +69,18 @@ class BaseApiModel:
             self.chat_args["stream"] = True
         if provider is not None:
             self.chat_args["provider"] = provider
+        # pass any unrecognised kwargs directly into chat_args so callers
+        # can add backend-specific params (e.g. repetition_penalty, seed)
+        # without touching this class
+        self.chat_args.update(kwargs)
+        logger.info(f"chat_args: {self.chat_args}")
         if retry_time is not None:
             self.retry_time = retry_time
+        self._single_infer = retry(
+            wait=wait_random_exponential(multiplier=10, max=100),
+            before_sleep=before_sleep_log(logger, logging.INFO),
+            stop=stop_after_attempt(max_retries),
+        )(self._single_infer)
         self.cache = ModelCache(self.chat_name) if use_cache else None
 
     def add_to_cache(self, chat_messages, response) -> None:
@@ -100,11 +117,6 @@ class BaseApiModel:
     def _chat(self, chat_messages, **kwargs) -> Iterator[Union[ApiResponse, str]]:
         raise NotImplementedError
 
-    @retry(
-        wait=wait_random_exponential(multiplier=10, max=100),
-        before_sleep=before_sleep_log(logger, logging.INFO),
-        stop=stop_after_attempt(5),
-    )
     def _single_infer(self, chat_messages, **kwargs) -> ApiResponse:
         final_answer = ""
         final_usage = None

@@ -82,6 +82,10 @@ class HttpClient(BaseApiModel):
         try:
             response_json = response.json()
         except Exception as e:
+            logger.error(
+                f"Failed to parse response JSON: status={response.status_code} "
+                f"body={response.text!r} error={e}"
+            )
             raise Exception(f"Error: {response.text}, {e}")
         if response.status_code != 200:
             if "error" not in response_json:
@@ -98,6 +102,11 @@ class HttpClient(BaseApiModel):
                 ):
                     yield ApiResponse.from_content(err_msg["message"])
                     return
+            logger.error(
+                f"Request failed: url={self.url} model={self.model_name} "
+                f"status={response.status_code} error={err_msg} "
+                f"full_response={response_json}"
+            )
             raise Exception(
                 f"Request failed with status code {response.status_code}: {err_msg}"
             )

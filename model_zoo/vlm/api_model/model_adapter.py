@@ -56,7 +56,10 @@ class ModelAdapter(BaseModelAdapter):
         if task_info.get("backend", None):
             self.model_server = self.launch_model(task_info)
 
-        model_config_keys = [
+        # Keys consumed by the model constructor for connection/session setup.
+        # Everything else in task_info is treated as a generation param and
+        # forwarded to BaseApiModel via **kwargs → self.chat_args.
+        model_init_keys = {
             "model_name",
             "url",
             "base_url",
@@ -67,6 +70,8 @@ class ModelAdapter(BaseModelAdapter):
             "max_long_side",
             "max_tokens",
             "temperature",
+            "top_p",
+            "top_k",
             "chat_name",
             "max_num_frames",
             "stream",
@@ -76,9 +81,26 @@ class ModelAdapter(BaseModelAdapter):
             "thinking",
             "provider",
             "retry_time",
-        ]
+        }
+        # Keys that belong to the runner/server layer, not the model.
+        runner_keys = {
+            "task_names",
+            "model_path",
+            "model_type",
+            "output_dir",
+            "backend",
+            "extra_args",
+            "server_port",
+            "execute_cmd",
+            "important_packages",
+            "num_workers",
+        }
         print(f"task_info: {task_info}")
-        model_config = {k: task_info[k] for k in model_config_keys if k in task_info}
+        model_config = {
+            k: v
+            for k, v in task_info.items()
+            if k in model_init_keys or k not in runner_keys
+        }
 
         model_type_map = {
             "http": HttpClient,

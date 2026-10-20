@@ -377,12 +377,15 @@ class BaseEvaluator:
             if self.detailed_keys:
                 for key in self.detailed_keys:
                     detailed_results[gt[key]].append(is_correct)
+        if len(predictions) == 0:
+            logger.error("No predictions found, cannot calculate accuracy")
+            return {"accuracy": 0.0}
         results = {
             "accuracy": round(right / len(predictions) * 100, 2),
         }
         if self.detailed_keys:
             for key, values in detailed_results.items():
-                results[key] = round(sum(values) / len(values) * 100, 2)
+                results[key] = round(sum(values) / len(values) * 100, 2) if values else 0.0
         return results
 
     def maybe_clean_answer(self, answer: str) -> str:
