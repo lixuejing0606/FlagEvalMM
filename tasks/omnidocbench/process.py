@@ -26,7 +26,10 @@ def _text_norm(text):
 def _build_gt_markdown(sample):
     """Reconstruct ground-truth Markdown from layout_dets, following
     the logic in OmniDocBench's tools/json2md.py."""
-    annos = [x for x in sample["layout_dets"] if x.get("order") is not None]
+    layout_dets = sample.get("layout_dets")
+    if not layout_dets:
+        return ""
+    annos = [x for x in layout_dets if x.get("order") is not None]
 
     # Handle truncated text blocks — merge them by reading order.
     truncated_ids = {}
