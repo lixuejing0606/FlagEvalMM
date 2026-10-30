@@ -73,25 +73,41 @@ class HttpClient(BaseApiModel):
         else:
             retry_time = self.retry_time
 
+        logger.info(
+            f"POST {self.url} model={self.model_name} timeout={retry_time}"
+        )
         response = requests.post(
             self.url,
             headers=self.headers,
             data=json.dumps(data),
             timeout=retry_time,
         )
+        logger.info(
+            f"Response: status={response.status_code} "
+            f"content-type={response.headers.get('content-type', 'N/A')} "
+            f"content-length={response.headers.get('content-length', len(response.content))}"
+        )
         try:
             response_json = response.json()
         except Exception as e:
+            body_preview = response.text[:500] if response.text else "<empty>"
             logger.error(
-                f"Failed to parse response JSON: status={response.status_code} "
-                f"body={response.text!r} error={e}"
+                f"Failed to parse response JSON: url={self.url} "
+                f"status={response.status_code} "
+                f"content-type={response.headers.get('content-type', 'N/A')} "
+                f"body_preview={body_preview!r} error={e}"
             )
             raise Exception(f"Error: {response.text}, {e}")
         if response.status_code != 200:
             if "error" not in response_json:
-                yield ApiResponse.from_content(
-                    f"Error code: {response_json['message']}"
+                err_detail = response_json.get(
+                    "message", json.dumps(response_json, ensure_ascii=False)[:500]
                 )
+                logger.error(
+                    f"Non-200 response without 'error' key: "
+                    f"status={response.status_code} body={response_json}"
+                )
+                yield ApiResponse.from_content(f"Error code: {err_detail}")
                 return
             err_msg = response_json["error"]
             if "code" in err_msg and "message" in err_msg:

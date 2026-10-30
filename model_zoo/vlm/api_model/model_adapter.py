@@ -225,7 +225,15 @@ class ModelAdapter(BaseModelAdapter):
         except Exception as e:
             import traceback
 
-            logger.error(f"An error occurred while processing item {i}: {e}")
+            logger.error(
+                f"An error occurred while processing item {i} "
+                f"(question_id={question_id}): {e!r}"
+            )
+            if hasattr(e, "__cause__") and e.__cause__:
+                logger.error(f"  Caused by: {e.__cause__!r}")
+            last = getattr(e, "last_attempt", None)
+            if last is not None:
+                logger.error(f"  Last attempt exception: {last.exception()!r}")
             traceback.print_exc()
 
             final_result = "Error code " + str(e)
@@ -258,10 +266,43 @@ class ModelAdapter(BaseModelAdapter):
             task_manager=self.task_manager,
         )
 
-        results = []
-        num_workers = self.task_info.get("num_workers", 1)
         inter_results_dir = osp.join(meta_info["output_dir"], "items")
         os.makedirs(inter_results_dir, exist_ok=True)
+
+        # score_only: 跳过推理，直接从已有 items/ 缓存收集结果并打分
+        if self.task_info.get("score_only", False):
+            logger.info("score_only=True, skipping inference and collecting cached results")
+            results = []
+            cached = 0
+            for i in range(len(self.dataset)):
+                question_id, _, qs = self.dataset[i]
+                inter_results_file = osp.join(inter_results_dir, f"{question_id}.json")
+                if osp.exists(inter_results_file):
+                    with open(inter_results_file, "r") as f:
+                        data = json.load(f)
+                    results.append(ProcessResult(
+                        question_id=question_id,
+                        question=qs,
+                        answer=data.get("answer", ""),
+                        reason=data.get("reason", ""),
+                        usage=data.get("usage", None),
+                    ))
+                    cached += 1
+                else:
+                    results.append(ProcessResult(
+                        question_id=question_id,
+                        question=qs,
+                        answer="Error code: no cached result (score_only mode)",
+                        reason="",
+                        usage=None,
+                    ))
+            logger.info(f"score_only: {cached}/{len(self.dataset)} cached, "
+                        f"{len(self.dataset) - cached} missing (marked as rejected)")
+            self.save_result(results, meta_info)
+            return
+
+        results = []
+        num_workers = self.task_info.get("num_workers", 1)
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             future_to_item = {
                 executor.submit(self.process_single_item, i, inter_results_dir): i
